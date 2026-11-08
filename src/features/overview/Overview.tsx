@@ -38,7 +38,7 @@ export function Overview({
           caption={
             mode === "demo"
               ? "Synthetic device inventory"
-              : "Neighbor collector unavailable"
+              : "Windows neighbor observations"
           }
         />
         <Metric
@@ -159,7 +159,8 @@ export function Overview({
             ))
           ) : (
             <div className="empty">
-              Neighbor discovery is not yet supported by this collector.
+              No neighbors observed yet. Open Devices to discover your local
+              subnet on Windows.
             </div>
           )}
         </section>

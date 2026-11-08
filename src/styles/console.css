@@ -1,0 +1,353 @@
+/* Instrument-panel surfaces: graphite, precise rules, restrained signal color. */
+.app {
+  --bg: #0c1014;
+  --side: #10161b;
+  --panel: #121a20;
+  --raised: #1b2830;
+  --border: #28353e;
+  --text: #dfe8ee;
+  --muted: #94a7b3;
+  --accent: #80cfcb;
+}
+.app[data-theme="light"] {
+  --bg: #edf1f2;
+  --side: #e4eaec;
+  --panel: #f9fbfc;
+  --raised: #dde9ea;
+  --border: #c9d6db;
+  --text: #162e39;
+  --muted: #526c78;
+  --accent: #196e72;
+}
+.brand {
+  letter-spacing: -0.9px;
+  font-weight: 650;
+}
+.brand-icon {
+  padding: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 5px;
+}
+.version,
+.eyebrow,
+.nav-label,
+.discovery-protocol {
+  font-family: Consolas, "Cascadia Code", monospace;
+}
+.topbar {
+  background: color-mix(in srgb, var(--side) 94%, transparent);
+}
+.topbar strong {
+  font-family: Consolas, monospace;
+  color: var(--accent);
+}
+h1 {
+  letter-spacing: -1.2px;
+  font-weight: 550;
+  font-size: 32px;
+}
+.page-heading {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 24px;
+}
+.eyebrow {
+  color: var(--accent);
+  font-size: 10px;
+}
+.panel,
+.metric,
+.workspace,
+.source-banner {
+  border-radius: 4px;
+}
+.source-banner {
+  border-left: 2px solid var(--accent);
+  background: var(--side);
+}
+.metric {
+  border-top: 2px solid var(--border);
+}
+.metric > strong {
+  font-family: Consolas, "Cascadia Code", monospace;
+  letter-spacing: -1px;
+  font-weight: 400;
+}
+.metric > div svg {
+  color: var(--accent);
+}
+.button-primary {
+  background: #80cfcb;
+  color: #10282c;
+}
+.button {
+  border-radius: 3px;
+}
+nav button {
+  border-radius: 3px;
+}
+.collection-symbol {
+  border-radius: 8px;
+  width: 52px;
+  height: 52px;
+  background: var(--side);
+  color: var(--accent);
+}
+table td:nth-child(2),
+table td:nth-child(3) {
+  font-family: Consolas, "Cascadia Code", monospace;
+}
+thead th {
+  position: sticky;
+  top: 0;
+  border-bottom: 1px solid var(--border);
+}
+.device-name {
+  font-weight: 550;
+}
+.table-wrap {
+  max-height: 65vh;
+}
+.badge {
+  border-radius: 3px;
+}
+.discovery-strip {
+  padding: 22px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
+  margin-bottom: 18px;
+}
+.discovery-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.discovery-heading > svg {
+  color: var(--accent);
+}
+.discovery-heading strong {
+  font-size: 15px;
+  font-weight: 550;
+}
+.discovery-heading p {
+  margin: 3px 0 0;
+  font-size: 11px;
+}
+.discovery-protocol {
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.discovery-form {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+.discovery-form select {
+  max-width: 440px;
+  min-width: 240px;
+}
+.discovery-form > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-family: Consolas, monospace;
+}
+.discovery-consent {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 10px;
+  margin: 12px 0;
+}
+.discovery-strip > p:empty {
+  display: none;
+}
+.coverage-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 14px;
+}
+.inventory-summary {
+  display: flex;
+  gap: 25px;
+  margin: 20px 0;
+  font-size: 11px;
+  color: var(--muted);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.inventory-summary strong {
+  color: var(--text);
+  font:
+    20px Consolas,
+    monospace;
+  margin-right: 6px;
+}
+.inventory-summary > span:last-child {
+  margin-left: auto;
+  font-size: 10px;
+}
+dialog.drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  margin: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  border: 0;
+  border-left: 1px solid var(--border);
+  color: var(--text);
+  width: 430px;
+}
+dialog.drawer::backdrop {
+  background: #03090dbb;
+  backdrop-filter: blur(3px);
+}
+.detail-symbol {
+  color: var(--accent);
+  margin: 18px 0 24px;
+}
+.drawer h2 {
+  margin: 8px 0 12px;
+}
+.drawer dl {
+  margin: 25px 0 18px;
+}
+.drawer dl > div {
+  padding: 12px 0;
+  font-size: 11px;
+}
+.drawer dd {
+  font-family: Consolas, monospace;
+}
+.device-editor {
+  margin: 24px 0;
+  display: grid;
+  gap: 16px;
+}
+.device-editor label {
+  display: grid;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.device-editor textarea {
+  resize: vertical;
+  min-height: 100px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 10px;
+  font:
+    12px "Segoe UI",
+    sans-serif;
+}
+.device-editor > .button {
+  justify-self: start;
+}
+
+.lab-panel {
+  border-top: 2px solid #b6a37d;
+}
+.lab-title {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 15px;
+}
+.lab-title > svg {
+  color: #c7b48e;
+}
+.lab-title span {
+  font:
+    9px Consolas,
+    monospace;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+.lab-form fieldset {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 0;
+  border: 0;
+  margin: 20px 0;
+}
+.lab-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.lab-form code {
+  color: var(--text);
+  font-size: 12px;
+}
+.lab-form .lab-confirm {
+  grid-column: 1 / -1;
+}
+.lab-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  border-block: 1px solid var(--border);
+  padding: 16px 0;
+  margin: 20px 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+.lab-state strong {
+  display: block;
+  color: var(--text);
+  font:
+    14px Consolas,
+    monospace;
+  margin-top: 5px;
+}
+.lab-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #b6a37d;
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  color: var(--text);
+  background: var(--side);
+  font:
+    11px Consolas,
+    monospace;
+}
+.lab-indicator > .button {
+  margin-left: auto;
+}
+@media (max-width: 850px) {
+  .discovery-protocol {
+    display: none;
+  }
+  .discovery-heading {
+    align-items: flex-start;
+  }
+  .inventory-summary {
+    gap: 15px;
+  }
+  .inventory-summary > span:last-child {
+    margin-left: 0;
+  }
+  .discovery-form select {
+    min-width: 0;
+    width: 100%;
+  }
+  .brand-icon {
+    padding: 0;
+    border: 0;
+  }
+}

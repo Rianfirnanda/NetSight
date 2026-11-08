@@ -25,6 +25,7 @@ import { TrafficChart } from "../components/shared/TrafficChart";
 import { Devices } from "../features/devices/Devices";
 import { Topology } from "../features/topology/Topology";
 import { EndpointCheck } from "../features/monitoring/EndpointCheck";
+import { LabIndicator, LabSession } from "../features/monitoring/LabSession";
 import { desktop, getSnapshot } from "../services/network";
 import type { Mode, Page } from "../types";
 const pages: Page[] = [
@@ -73,7 +74,7 @@ function rate(value: number) {
 }
 export default function App() {
   const [page, setPage] = useState<Page>("Overview");
-  const [mode, setMode] = useState<Mode>("demo");
+  const [mode, setMode] = useState<Mode>(desktop ? "live" : "demo");
   const [theme, setTheme] = useState(() => read("netsight-theme", "dark"));
   const [readIds, setReadIds] = useState<string[]>(() => {
     try {
@@ -217,6 +218,7 @@ export default function App() {
           </div>
         </header>
         <div className="content">
+          <LabIndicator />
           <div className="page-heading">
             <div>
               <div className="eyebrow">NETWORK WORKSPACE</div>
@@ -242,8 +244,8 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <strong>Live mode</strong> — Local machine counters. Neighbor
-                  discovery is not yet implemented.
+                  <strong>Live mode</strong> — Local counters and Windows
+                  neighbor observations.
                 </>
               )}
             </span>
@@ -277,7 +279,9 @@ export default function App() {
                     setPage={setPage}
                   />
                 )}
-                {page === "Devices" && <Devices devices={data.devices} />}
+                {page === "Devices" && (
+                  <Devices devices={data.devices} demo={mode === "demo"} />
+                )}
                 {page === "Monitoring" && (
                   <>
                     <section className="panel">
@@ -307,6 +311,7 @@ export default function App() {
                       ))}
                     </section>
                     <EndpointCheck />
+                    <LabSession devices={data.devices} demo={mode === "demo"} />
                   </>
                 )}
                 {page === "Topology" && (
@@ -421,7 +426,7 @@ export default function App() {
             <span>
               {mode === "demo"
                 ? "All displayed observations are synthetic"
-                : "Live values reflect only this machine"}{" "}
+                : "Local counters · Windows neighbor observations"}{" "}
               · NetSight 0.1
             </span>
           </footer>

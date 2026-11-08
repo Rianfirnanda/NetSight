@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./app/App";
 import "./styles/global.css";
+import "./styles/console.css";
 const client = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
 });

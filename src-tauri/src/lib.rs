@@ -1,4 +1,6 @@
+pub mod discovery;
 mod domain;
+pub mod lab;
 use domain::{Adapter, Sample, Snapshot};
 #[cfg(feature = "desktop")]
 use sqlx::sqlite::SqlitePoolOptions;
@@ -20,6 +22,10 @@ pub struct Collector {
 pub struct State {
     collector: Mutex<Collector>,
     db: SqlitePool,
+    #[cfg(feature = "desktop")]
+    scan: Mutex<()>,
+    #[cfg(feature = "desktop")]
+    lab: lab::Manager,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -88,13 +94,93 @@ pub async fn collect(state: &State) -> Result<Snapshot, CollectError> {
         .await?;
     tx.commit().await?;
     let samples=sqlx::query_as::<_,Sample>("SELECT at, download, upload FROM (SELECT * FROM telemetry_samples ORDER BY at DESC LIMIT 720) ORDER BY at").fetch_all(&state.db).await?;
+    let mut devices = discovery::neighbors(at).map_err(|_| {
+        CollectError::Interfaces(std::io::Error::other("Windows neighbor collection failed"))
+    })?;
+    for address in &addresses {
+        if let std::net::IpAddr::V4(ip) = address.ip() {
+            if ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() {
+                continue;
+            }
+            let mac = adapters
+                .iter()
+                .find(|a| a.name == address.name)
+                .map(|a| a.mac.clone())
+                .unwrap_or_default();
+            devices.push(domain::Device {
+                id: format!("local-{ip}"),
+                name: "This computer".into(),
+                ip: ip.to_string(),
+                mac,
+                vendor: "Unknown".into(),
+                source: "Local interface".into(),
+                status: "Local".into(),
+                last_seen: at,
+                interface: address.name.clone(),
+                notes: String::new(),
+                alias: String::new(),
+            });
+        }
+    }
+    for device in &mut devices {
+        if let Some((alias, notes)) = sqlx::query_as::<_, (String, String)>(
+            "SELECT alias, notes FROM device_metadata WHERE id = ?",
+        )
+        .bind(&device.id)
+        .fetch_optional(&state.db)
+        .await?
+        {
+            device.alias = alias;
+            device.notes = notes;
+            if !device.alias.is_empty() {
+                device.name = device.alias.clone();
+            }
+        }
+    }
     Ok(Snapshot {
         adapters,
-        devices: vec![],
+        devices,
         samples,
         events: vec![],
         collected_at: at.to_string(),
     })
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+fn discovery_scopes() -> Result<Vec<discovery::Scope>, String> {
+    discovery::scopes()
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+async fn discover_devices(
+    address: String,
+    state: tauri::State<'_, State>,
+) -> Result<usize, String> {
+    let _guard = state
+        .scan
+        .try_lock()
+        .map_err(|_| "A discovery is already running")?;
+    if state.lab.status()?.running {
+        return Err("Stop the lab session before starting another discovery.".into());
+    }
+    discovery::discover(&address).await
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+async fn save_device(
+    id: String,
+    alias: String,
+    notes: String,
+    state: tauri::State<'_, State>,
+) -> Result<(), String> {
+    if id.len() > 128 || alias.len() > 100 || notes.len() > 2000 {
+        return Err("Device fields exceed the allowed length".into());
+    }
+    sqlx::query("INSERT INTO device_metadata(id,alias,notes) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET alias=excluded.alias,notes=excluded.notes").bind(id).bind(alias.trim()).bind(notes.trim()).execute(&state.db).await.map_err(|_| "Could not save device metadata")?;
+    Ok(())
 }
 
 #[cfg(feature = "desktop")]
@@ -104,6 +190,26 @@ async fn snapshot(state: tauri::State<'_, State>) -> Result<Snapshot, String> {
         tracing::warn!("Snapshot collection failed");
         e.to_string()
     })
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+fn lab_status(state: tauri::State<'_, State>) -> Result<lab::Status, String> {
+    state.lab.status()
+}
+#[cfg(feature = "desktop")]
+#[tauri::command]
+fn start_lab(config: lab::Config, state: tauri::State<'_, State>) -> Result<(), String> {
+    let _guard = state
+        .scan
+        .try_lock()
+        .map_err(|_| "Wait for device discovery to finish before starting a lab session")?;
+    state.lab.start(config)
+}
+#[cfg(feature = "desktop")]
+#[tauri::command]
+fn stop_lab(state: tauri::State<'_, State>) {
+    state.lab.stop();
 }
 
 fn validate_endpoint(host: &str, port: u16) -> Result<(), String> {
@@ -162,6 +268,8 @@ pub fn run() {
                 sqlx::migrate!("./migrations").run(&db).await?;
                 Ok::<_, Box<dyn std::error::Error>>(State {
                     db,
+                    scan: Mutex::new(()),
+                    lab: lab::Manager::new(path.join("lab-audit.jsonl")),
                     collector: Mutex::new(Collector {
                         networks: Networks::new_with_refreshed_list(),
                         previous: HashMap::new(),
@@ -172,7 +280,23 @@ pub fn run() {
             app.manage(state);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, check_endpoint])
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                if let Some(state) = window.try_state::<State>() {
+                    state.lab.shutdown();
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            snapshot,
+            check_endpoint,
+            discovery_scopes,
+            discover_devices,
+            save_device,
+            lab_status,
+            start_lab,
+            stop_lab
+        ])
         .run(tauri::generate_context!())
         .expect("NetSight desktop runtime failed");
 }
@@ -194,6 +318,10 @@ mod tests {
             .unwrap();
         let state = State {
             db,
+            #[cfg(feature = "desktop")]
+            scan: Mutex::new(()),
+            #[cfg(feature = "desktop")]
+            lab: lab::Manager::new(std::env::temp_dir().join("netsight-test-lab-audit.jsonl")),
             collector: Mutex::new(Collector {
                 networks: Networks::new_with_refreshed_list(),
                 previous: HashMap::new(),

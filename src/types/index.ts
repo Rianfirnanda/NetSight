@@ -24,7 +24,10 @@ export interface Device {
   vendor: string;
   source: string;
   status: string;
-  lastSeen: string;
+  lastSeen: string | number;
+  interface?: string;
+  notes?: string;
+  alias?: string;
 }
 export interface Sample {
   at: number;

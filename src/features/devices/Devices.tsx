@@ -8,10 +8,19 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, Monitor, Search, X } from "lucide-react";
-import { Button } from "../../components/ui/button";
+import { ArrowUpDown, Monitor, Search } from "lucide-react";
+import { DeviceDetails } from "./DeviceDetails";
+import { Discovery } from "./Discovery";
+import { useQueryClient } from "@tanstack/react-query";
 import type { Device } from "../../types";
-export function Devices({ devices }: { devices: Device[] }) {
+export function Devices({
+  devices,
+  demo,
+}: {
+  devices: Device[];
+  demo: boolean;
+}) {
+  const client = useQueryClient();
   const [search, setSearch] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
   const [selected, setSelected] = useState<Device | null>(null);
@@ -29,6 +38,7 @@ export function Devices({ devices }: { devices: Device[] }) {
         ),
       },
       { accessorKey: "ip", header: "IP address" },
+      { accessorKey: "mac", header: "MAC address" },
       { accessorKey: "vendor", header: "Vendor" },
       {
         accessorKey: "status",
@@ -61,6 +71,21 @@ export function Devices({ devices }: { devices: Device[] }) {
   });
   return (
     <>
+      <Discovery demo={demo} />
+      <div className="inventory-summary">
+        <span>
+          <strong>{devices.length}</strong> observed devices
+        </span>
+        <span>
+          <strong>
+            {devices.filter((d) => d.status === "Reachable").length}
+          </strong>{" "}
+          reachable neighbors
+        </span>
+        <span>
+          Source: {demo ? "Synthetic demo" : "Windows neighbor table"}
+        </span>
+      </div>
       <div className="toolbar">
         <label className="search">
           <Search size={16} />
@@ -76,7 +101,7 @@ export function Devices({ devices }: { devices: Device[] }) {
           value={status}
           onChange={(e) => setStatus(e.target.value)}
         >
-          {["All", "Reachable", "Observed", "Stale"].map((s) => (
+          {["All", "Reachable", "Observed", "Stale", "Local"].map((s) => (
             <option key={s}>{s}</option>
           ))}
         </select>
@@ -133,8 +158,8 @@ export function Devices({ devices }: { devices: Device[] }) {
         </table>
         {!table.getRowModel().rows.length && (
           <div className="empty">
-            No devices match this view. Locally observed neighbors will appear
-            when supported by the collector.
+            No devices match this view. In live Windows mode, choose your LAN
+            interface and run Discover subnet.
           </div>
         )}
         <div className="table-footer">
@@ -143,38 +168,14 @@ export function Devices({ devices }: { devices: Device[] }) {
         </div>
       </div>
       {selected && (
-        <div className="drawer-backdrop" onClick={() => setSelected(null)}>
-          <section
-            className="drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Device details"
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setSelected(null);
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Button
-              autoFocus
-              variant="ghost"
-              onClick={() => setSelected(null)}
-              aria-label="Close details"
-            >
-              <X size={18} />
-            </Button>
-            <Monitor size={28} />
-            <h2>{selected.name}</h2>
-            <p>Observed device details</p>
-            <dl>
-              {Object.entries(selected).map(([key, value]) => (
-                <div key={key}>
-                  <dt>{key}</dt>
-                  <dd>{value || "Unavailable"}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        </div>
+        <DeviceDetails
+          device={selected}
+          demo={demo}
+          onClose={() => setSelected(null)}
+          onSaved={async () => {
+            await client.invalidateQueries({ queryKey: ["snapshot", "live"] });
+          }}
+        />
       )}
     </>
   );

@@ -1,0 +1,5 @@
+CREATE TABLE device_metadata (
+ id TEXT PRIMARY KEY,
+ alias TEXT NOT NULL DEFAULT '',
+ notes TEXT NOT NULL DEFAULT ''
+);
