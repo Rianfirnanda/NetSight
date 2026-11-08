@@ -1,0 +1,32 @@
+[package]
+name = "netsight"
+version = "0.1.0"
+edition = "2021"
+description = "Local network observability workspace"
+
+[lib]
+name = "netsight_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:tauri-build"]
+
+[[bin]]
+name = "netsight"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [], optional = true }
+
+[dependencies]
+tauri = { version = "2", features = [], optional = true }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["net", "time", "sync", "macros", "rt-multi-thread"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+sysinfo = { version = "0.33", default-features = false, features = ["network"] }
+if-addrs = "0.13"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
