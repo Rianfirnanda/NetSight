@@ -1,3 +1,4 @@
+pub mod bandwidth;
 pub mod discovery;
 mod domain;
 pub mod lab;
@@ -212,6 +213,20 @@ fn stop_lab(state: tauri::State<'_, State>) {
     state.lab.stop();
 }
 
+#[cfg(feature = "desktop")]
+#[tauri::command]
+fn update_lab_policy(
+    target: String,
+    gateway: String,
+    policy: bandwidth::Policy,
+    confirmation: String,
+    state: tauri::State<'_, State>,
+) -> Result<(), String> {
+    state
+        .lab
+        .update_policy(&target, &gateway, policy, &confirmation)
+}
+
 fn validate_endpoint(host: &str, port: u16) -> Result<(), String> {
     if port == 0
         || host.is_empty()
@@ -295,7 +310,8 @@ pub fn run() {
             save_device,
             lab_status,
             start_lab,
-            stop_lab
+            stop_lab,
+            update_lab_policy
         ])
         .run(tauri::generate_context!())
         .expect("NetSight desktop runtime failed");

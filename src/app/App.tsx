@@ -74,6 +74,7 @@ function rate(value: number) {
 }
 export default function App() {
   const [page, setPage] = useState<Page>("Overview");
+  const [controlTarget, setControlTarget] = useState("");
   const [mode, setMode] = useState<Mode>(desktop ? "live" : "demo");
   const [theme, setTheme] = useState(() => read("netsight-theme", "dark"));
   const [readIds, setReadIds] = useState<string[]>(() => {
@@ -280,7 +281,14 @@ export default function App() {
                   />
                 )}
                 {page === "Devices" && (
-                  <Devices devices={data.devices} demo={mode === "demo"} />
+                  <Devices
+                    devices={data.devices}
+                    demo={mode === "demo"}
+                    onControl={(ip) => {
+                      setControlTarget(ip);
+                      setPage("Monitoring");
+                    }}
+                  />
                 )}
                 {page === "Monitoring" && (
                   <>
@@ -311,7 +319,11 @@ export default function App() {
                       ))}
                     </section>
                     <EndpointCheck />
-                    <LabSession devices={data.devices} demo={mode === "demo"} />
+                    <LabSession
+                      devices={data.devices}
+                      demo={mode === "demo"}
+                      initialTarget={controlTarget}
+                    />
                   </>
                 )}
                 {page === "Topology" && (

@@ -16,9 +16,11 @@ import type { Device } from "../../types";
 export function Devices({
   devices,
   demo,
+  onControl,
 }: {
   devices: Device[];
   demo: boolean;
+  onControl?: (ip: string) => void;
 }) {
   const client = useQueryClient();
   const [search, setSearch] = useState("");
@@ -170,6 +172,7 @@ export function Devices({
       {selected && (
         <DeviceDetails
           device={selected}
+          onControl={onControl}
           demo={demo}
           onClose={() => setSelected(null)}
           onSaved={async () => {

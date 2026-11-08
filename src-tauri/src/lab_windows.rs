@@ -1,4 +1,5 @@
 use super::{Config, Status};
+use crate::bandwidth::{Policer, Policy};
 use libloading::Library;
 use std::{
     ffi::{c_char, c_int, c_void, CStr, CString},
@@ -11,8 +12,8 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_sys::Win32::{
-    NetworkManagement::IpHelper::{GetIfEntry2, MIB_IF_ROW2},
-    Networking::WinSock::{AF_INET, SOCKADDR, SOCKADDR_IN},
+    NetworkManagement::IpHelper::{GetIfEntry2, ResolveIpNetEntry2, MIB_IF_ROW2, MIB_IPNET_ROW2},
+    Networking::WinSock::{AF_INET, IN_ADDR, IN_ADDR_0, SOCKADDR, SOCKADDR_IN, SOCKADDR_INET},
     System::SystemInformation::GetSystemDirectoryW,
 };
 
@@ -192,10 +193,45 @@ impl Drop for Restore<'_, '_> {
     }
 }
 
+fn refresh_peer(
+    ip: Ipv4Addr,
+    source: Ipv4Addr,
+    index: u32,
+    expected: [u8; 6],
+) -> Result<(), String> {
+    let sockaddr = |addr: Ipv4Addr| SOCKADDR_INET {
+        Ipv4: SOCKADDR_IN {
+            sin_family: AF_INET,
+            sin_port: 0,
+            sin_addr: IN_ADDR {
+                S_un: IN_ADDR_0 {
+                    S_addr: u32::from_ne_bytes(addr.octets()),
+                },
+            },
+            sin_zero: [0; 8],
+        },
+    };
+    let mut row: MIB_IPNET_ROW2 = unsafe { std::mem::zeroed() };
+    row.Address = sockaddr(ip);
+    row.InterfaceIndex = index;
+    let source = sockaddr(source);
+    // SAFETY: properly initialized IPv4 addresses and an OS interface index.
+    // Resolve only the two explicitly selected lab peers before redirection.
+    let error = unsafe { ResolveIpNetEntry2(&mut row, &source) };
+    if error != 0 {
+        return Err(format!("Cannot resolve lab peer {ip} on the selected interface (OS error {error}). No redirection started."));
+    }
+    if row.PhysicalAddressLength != 6 || row.PhysicalAddress[..6] != expected {
+        return Err(format!("The hardware address for {ip} changed. Refresh inventory and confirm the lab peers again."));
+    }
+    Ok(())
+}
+
 pub(super) fn run(
     config: &Config,
     stop: &AtomicBool,
     status: &Mutex<Status>,
+    policy: &Mutex<Policy>,
 ) -> Result<(), String> {
     let target_ip = config
         .target
@@ -241,14 +277,12 @@ pub(super) fn run(
     let neighbors = crate::discovery::neighbors(0)?;
     let target = neighbors
         .iter()
-        .find(|n| n.ip == config.target && n.status == "Reachable")
-        .ok_or("Target must be a reachable Windows neighbor. Refresh discovery first.")?;
+        .find(|n| n.ip == config.target)
+        .ok_or("Target must be an observed Windows neighbor. Refresh discovery first.")?;
     let gateway = neighbors
         .iter()
-        .find(|n| {
-            n.ip == config.gateway && n.interface == target.interface && n.status == "Reachable"
-        })
-        .ok_or("Gateway must be a reachable neighbor on the target's interface.")?;
+        .find(|n| n.ip == config.gateway && n.interface == target.interface)
+        .ok_or("Gateway must be an observed neighbor on the target's interface.")?;
     let target_mac = mac(&target.mac)?;
     let gateway_mac = mac(&gateway.mac)?;
     if target_mac == gateway_mac {
@@ -271,6 +305,8 @@ pub(super) fn run(
     if own_mac == target_mac || own_mac == gateway_mac {
         return Err("Local and lab peer MAC addresses must differ.".into());
     }
+    refresh_peer(target_ip, local_ip, row.InterfaceIndex, target_mac)?;
+    refresh_peer(gateway_ip, local_ip, row.InterfaceIndex, gateway_mac)?;
     let guid = row.InterfaceGuid;
     let expected = format!(
         "{{{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}}}",
@@ -381,6 +417,12 @@ pub(super) fn run(
     let mut last_poison = None;
     let mut forwarded = 0u64;
     let mut bytes = 0u64;
+    let mut upload_bytes = 0u64;
+    let mut download_bytes = 0u64;
+    let mut dropped_frames = 0u64;
+    let mut dropped_bytes = 0u64;
+    let mut upload = Policer::default();
+    let mut download = Policer::default();
     while !stop.load(Ordering::Acquire) && start.elapsed() < Duration::from_secs(config.seconds) {
         if last_poison.is_none_or(|at: Instant| at.elapsed() >= Duration::from_secs(2)) {
             restore.dirty = true;
@@ -417,20 +459,50 @@ pub(super) fn run(
                         None
                     };
                 if let Some(destination) = destination {
-                    let mut outgoing = frame.to_vec();
-                    outgoing[..6].copy_from_slice(&destination);
-                    outgoing[6..12].copy_from_slice(&own_mac);
-                    capture.send(&outgoing)?;
-                    forwarded += 1;
-                    bytes += frame.len() as u64;
+                    let active = policy.lock().map_err(|_| "Policy lock failed")?.clone();
+                    let is_upload = destination == gateway_mac;
+                    let allowed = !active.blocked
+                        && if is_upload {
+                            upload.allow(frame.len(), active.upload_kbps, Instant::now())
+                        } else {
+                            download.allow(frame.len(), active.download_kbps, Instant::now())
+                        };
+                    if allowed {
+                        let mut outgoing = frame.to_vec();
+                        outgoing[..6].copy_from_slice(&destination);
+                        outgoing[6..12].copy_from_slice(&own_mac);
+                        capture.send(&outgoing)?;
+                        forwarded += 1;
+                        bytes += frame.len() as u64;
+                        if is_upload {
+                            upload_bytes += frame.len() as u64;
+                        } else {
+                            download_bytes += frame.len() as u64;
+                        }
+                    } else {
+                        dropped_frames += 1;
+                        dropped_bytes += frame.len() as u64;
+                    }
                 }
             }
         } else {
             std::thread::sleep(Duration::from_millis(10));
         }
         if let Ok(mut s) = status.lock() {
+            s.phase = if s.policy.blocked {
+                "Blocking · lab"
+            } else if s.policy.upload_kbps.is_some() || s.policy.download_kbps.is_some() {
+                "Rate limiting · lab"
+            } else {
+                "Forwarding · lab"
+            }
+            .into();
             s.forwarded = forwarded;
             s.bytes = bytes;
+            s.upload_bytes = upload_bytes;
+            s.download_bytes = download_bytes;
+            s.dropped_frames = dropped_frames;
+            s.dropped_bytes = dropped_bytes;
             s.remaining = config.seconds.saturating_sub(start.elapsed().as_secs());
         }
     }

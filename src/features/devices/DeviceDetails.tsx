@@ -8,11 +8,13 @@ export function DeviceDetails({
   demo,
   onClose,
   onSaved,
+  onControl,
 }: {
   device: Device;
   demo: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  onControl?: (ip: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [alias, setAlias] = useState(device.alias || "");
@@ -82,6 +84,17 @@ export function DeviceDetails({
         <Copy size={14} />
         Copy addresses
       </Button>
+      {!demo && device.source === "Windows neighbor table" && onControl && (
+        <Button
+          variant="outline"
+          onClick={() => {
+            onClose();
+            onControl(device.ip);
+          }}
+        >
+          Open bandwidth controls
+        </Button>
+      )}
       <form
         className="device-editor"
         onSubmit={async (e) => {

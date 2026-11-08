@@ -5,6 +5,12 @@ import { FlaskConical, Square, ArrowRightLeft } from "lucide-react";
 import { desktop } from "../../services/network";
 import { Button } from "../../components/ui/button";
 import type { Device } from "../../types";
+import { ActivePolicy, PolicyFields } from "./BandwidthPolicy";
+import {
+  policySummary,
+  unlimitedPolicy,
+  type Policy,
+} from "../../lib/bandwidth";
 interface Status {
   running: boolean;
   phase: string;
@@ -15,6 +21,11 @@ interface Status {
   remaining: number;
   restoration: string;
   error: string | null;
+  uploadBytes: number;
+  downloadBytes: number;
+  droppedFrames: number;
+  droppedBytes: number;
+  policy: Policy;
 }
 function useLabStatus() {
   return useQuery({
@@ -35,6 +46,8 @@ export function LabIndicator() {
       <span>
         LAB ACTIVE · {query.data.target} ↔ {query.data.gateway} ·{" "}
         {query.data.remaining}s remaining {error}
+        {" · "}
+        {policySummary(query.data.policy || unlimitedPolicy)}
       </span>
       <Button
         variant="outline"
@@ -56,9 +69,11 @@ export function LabIndicator() {
 export function LabSession({
   devices,
   demo,
+  initialTarget,
 }: {
   devices: Device[];
   demo: boolean;
+  initialTarget?: string;
 }) {
   const status = useLabStatus();
   const scopes = useQuery({
@@ -71,15 +86,14 @@ export function LabSession({
     retry: false,
   });
   const [address, setAddress] = useState("");
-  const [target, setTarget] = useState("");
+  const [target, setTarget] = useState(initialTarget || "");
   const [gateway, setGateway] = useState("");
   const [seconds, setSeconds] = useState(60);
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const peers = devices.filter(
-    (d) => d.source === "Windows neighbor table" && d.status === "Reachable",
-  );
+  const [policy, setPolicy] = useState<Policy>(unlimitedPolicy);
+  const peers = devices.filter((d) => d.source === "Windows neighbor table");
   const active = status.data?.running || false;
   const expected = `LAB ${target} ${gateway}`;
   return (
@@ -94,7 +108,8 @@ export function LabSession({
       <p>
         A time-limited ARP redirection session for your authorized lab. NetSight
         forwards IPv4 frames between one target and one gateway. It counts
-        frames and bytes; it does not decrypt TLS or save packet contents.
+        frames and bytes and can limit upload/download or block forwarded IPv4
+        traffic. It does not decrypt TLS or save packet contents.
       </p>
       <div className="notice">
         Requires official Npcap and adapter access, usually administrator
@@ -122,6 +137,7 @@ export function LabSession({
                   gateway,
                   seconds,
                   confirmation,
+                  policy,
                 },
               });
               setConfirmation("");
@@ -162,7 +178,7 @@ export function LabSession({
                   setConfirmation("");
                 }}
               >
-                <option value="">Select a reachable lab neighbor</option>
+                <option value="">Select an observed lab neighbor</option>
                 {peers.map((d) => (
                   <option key={d.id} value={d.ip}>
                     {d.ip} · {d.name}
@@ -214,6 +230,7 @@ export function LabSession({
                 onChange={(e) => setConfirmation(e.target.value)}
               />
             </label>
+            <PolicyFields value={policy} onChange={setPolicy} />
           </fieldset>
           <Button
             disabled={
@@ -245,7 +262,35 @@ export function LabSession({
         <span>
           Remaining <strong>{status.data?.remaining || 0}s</strong>
         </span>
+        <span>
+          Upload forwarded
+          <strong>
+            {((status.data?.uploadBytes || 0) / 1e6).toFixed(2)} MB
+          </strong>
+        </span>
+        <span>
+          Download forwarded
+          <strong>
+            {((status.data?.downloadBytes || 0) / 1e6).toFixed(2)} MB
+          </strong>
+        </span>
+        <span>
+          Policy drops<strong>{status.data?.droppedFrames || 0} frames</strong>
+        </span>
       </div>
+      <p>
+        Effective policy:{" "}
+        {policySummary(status.data?.policy || unlimitedPolicy)}
+      </p>
+      {active && status.data && (
+        <ActivePolicy
+          key={`${status.data.target}-${status.data.gateway}`}
+          target={status.data.target}
+          gateway={status.data.gateway}
+          initial={status.data.policy || unlimitedPolicy}
+          onApplied={() => status.refetch()}
+        />
+      )}
       {active && (
         <Button
           variant="outline"
@@ -270,9 +315,13 @@ export function LabSession({
       )}
       <div className="coverage-note">
         IPv4 over untagged Ethernet-compatible interfaces only; one session at a
-        time, 30–300 seconds. Peers must be reachable on the same interface.
+        time, 30–300 seconds. The backend resolves both peers on the selected
+        interface before redirection and rejects changed hardware addresses.
         Session metadata is recorded in the local app-data lab audit file.
-        Discovery is not an interception session.
+        Discovery is not an interception session. Controls cover only IPv4
+        frames actually passing through this NetSight session. IPv6, bypass
+        paths and other devices are unaffected. Rate enforcement uses
+        token-bucket policing with up to 64 KiB burst credit, not router QoS.
       </div>
     </section>
   );

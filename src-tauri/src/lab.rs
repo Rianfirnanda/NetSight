@@ -1,4 +1,5 @@
 //! Explicit, time-limited IPv4 lab sessions. Packet payloads are never logged.
+use crate::bandwidth::Policy;
 use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
@@ -17,6 +18,8 @@ pub struct Config {
     pub gateway: String,
     pub seconds: u64,
     pub confirmation: String,
+    #[serde(default)]
+    pub policy: Policy,
 }
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,6 +33,11 @@ pub struct Status {
     pub remaining: u64,
     pub restoration: String,
     pub error: Option<String>,
+    pub upload_bytes: u64,
+    pub download_bytes: u64,
+    pub dropped_frames: u64,
+    pub dropped_bytes: u64,
+    pub policy: Policy,
 }
 
 pub struct Manager {
@@ -37,6 +45,8 @@ pub struct Manager {
     stop: Arc<AtomicBool>,
     worker: Mutex<Option<JoinHandle<()>>>,
     audit: PathBuf,
+    policy: Arc<Mutex<Policy>>,
+    audit_lock: Arc<Mutex<()>>,
 }
 impl Manager {
     pub fn new(audit: PathBuf) -> Self {
@@ -48,6 +58,8 @@ impl Manager {
             stop: Arc::new(AtomicBool::new(false)),
             worker: Mutex::new(None),
             audit,
+            policy: Arc::new(Mutex::new(Policy::default())),
+            audit_lock: Arc::new(Mutex::new(())),
         }
     }
     pub fn status(&self) -> Result<Status, String> {
@@ -57,6 +69,7 @@ impl Manager {
             .map_err(|_| "Lab status lock failed".into())
     }
     pub fn start(&self, config: Config) -> Result<(), String> {
+        config.policy.validate()?;
         if !cfg!(windows) {
             return Err("Lab sessions require Windows, Npcap and administrator access.".into());
         }
@@ -75,6 +88,7 @@ impl Manager {
             let _ = old.join();
         }
         self.stop.store(false, Ordering::Release);
+        *self.policy.lock().map_err(|_| "Policy lock failed")? = config.policy.clone();
         *self.status.lock().map_err(|_| "Lab status lock failed")? = Status {
             running: true,
             phase: "Preparing".into(),
@@ -82,11 +96,14 @@ impl Manager {
             gateway: config.gateway.clone(),
             remaining: config.seconds,
             restoration: "Not yet needed".into(),
+            policy: config.policy.clone(),
             ..Status::default()
         };
         let status = self.status.clone();
         let stop = self.stop.clone();
         let path = self.audit.clone();
+        let policy = self.policy.clone();
+        let audit_lock = self.audit_lock.clone();
         *worker = Some(std::thread::spawn(move || {
             use std::io::Write;
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
@@ -103,13 +120,16 @@ impl Manager {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_millis();
-                    let line = serde_json::json!({"action":"start_requested","at":now,"address":config.address,"target":config.target,"gateway":config.gateway,"seconds":config.seconds});
+                    let line = serde_json::json!({"action":"start_requested","at":now,"address":config.address,"target":config.target,"gateway":config.gateway,"seconds":config.seconds,"policy":config.policy});
+                    let guard = audit_lock.lock().map_err(|_| "Audit lock failed")?;
                     writeln!(audit, "{line}")
                         .and_then(|_| audit.sync_data())
                         .map_err(|_| "Cannot persist lab audit entry")?;
-                    let outcome = run(&config, &stop, &status);
+                    drop(guard);
+                    let outcome = run(&config, &stop, &status, &policy);
                     let final_state = status.lock().map_err(|_| "Lab status lock failed")?.clone();
-                    let line = serde_json::json!({"action":"session_finished","target":config.target,"gateway":config.gateway,"forwarded":final_state.forwarded,"restoration":final_state.restoration,"error":outcome.as_ref().err()});
+                    let line = serde_json::json!({"action":"session_finished","target":config.target,"gateway":config.gateway,"forwarded":final_state.forwarded,"droppedFrames":final_state.dropped_frames,"uploadBytes":final_state.upload_bytes,"downloadBytes":final_state.download_bytes,"policy":final_state.policy,"restoration":final_state.restoration,"error":outcome.as_ref().err()});
+                    let _guard = audit_lock.lock().map_err(|_| "Audit lock failed")?;
                     writeln!(audit, "{line}")
                         .and_then(|_| audit.sync_data())
                         .map_err(|_| "Cannot persist lab completion audit entry")?;
@@ -137,6 +157,48 @@ impl Manager {
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Release);
     }
+    pub fn update_policy(
+        &self,
+        target: &str,
+        gateway: &str,
+        policy: Policy,
+        confirmation: &str,
+    ) -> Result<(), String> {
+        use std::io::Write;
+        policy.validate()?;
+        if confirmation != format!("CONTROL {target} {gateway}") {
+            return Err(
+                "Type the exact CONTROL confirmation for the active target and gateway.".into(),
+            );
+        }
+        let _worker = self.worker.lock().map_err(|_| "Lab session lock failed")?;
+        let snapshot = self.status()?;
+        if !snapshot.running || snapshot.target != target || snapshot.gateway != gateway {
+            return Err("The selected lab session is not active.".into());
+        }
+        let audit_guard = self.audit_lock.lock().map_err(|_| "Audit lock failed")?;
+        if std::fs::metadata(&self.audit).is_ok_and(|m| m.len() > 1_048_576) {
+            return Err("Archive the lab audit file before changing policy (1 MiB limit).".into());
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&self.audit)
+            .map_err(|_| "Cannot open lab audit file")?;
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        writeln!(file,"{}",serde_json::json!({"action":"policy_change_requested","at":at,"target":target,"gateway":gateway,"policy":policy})).and_then(|_|file.sync_data()).map_err(|_|"Cannot persist policy audit entry")?;
+        drop(audit_guard);
+        let mut status = self.status.lock().map_err(|_| "Lab status lock failed")?;
+        if !status.running {
+            return Err("The session ended before the policy could be applied.".into());
+        }
+        let mut active = self.policy.lock().map_err(|_| "Policy lock failed")?;
+        *active = policy.clone();
+        status.policy = policy;
+        Ok(())
+    }
     pub fn shutdown(&self) {
         self.stop();
         if let Ok(mut worker) = self.worker.lock() {
@@ -153,7 +215,7 @@ impl Drop for Manager {
 }
 
 #[cfg(not(windows))]
-fn run(_: &Config, _: &AtomicBool, _: &Mutex<Status>) -> Result<(), String> {
+fn run(_: &Config, _: &AtomicBool, _: &Mutex<Status>, _: &Mutex<Policy>) -> Result<(), String> {
     Err("Windows/Npcap is required".into())
 }
 #[cfg(windows)]
