@@ -21,7 +21,11 @@ cargo clippy --no-default-features -- -D warnings
 
 Browser tests: `npx playwright test` uses system Chromium by default. Set `CHROMIUM_PATH` to override its path. Windows packaging: `npm run tauri build` from the repository root on Windows produces the NSIS installer. Windows packaging and Windows collector behavior must be validated on Windows before release.
 
-## Implemented
+## Download a Windows installer from GitHub
+
+Open the repository's **Actions** tab and select **Windows installer**. Every push to `main` starts a Windows x64 build; you can also select **Run workflow** to start one manually. Once the run succeeds, download `NetSight-Windows-x64-<run number>` under **Artifacts**, extract the ZIP, and run the included `.exe`. GitHub requires you to sign in to download artifacts. Artifacts are retained for 30 days. These builds are unsigned; inspect Windows security prompts and only install builds you trust. A successful build does not replace testing installation and live collection on Windows.
+
+## Implemented features
 
 Seven navigable workspace pages, light/dark appearance, design tokens, responsive shell, Lucide icons, a shadcn-style Radix Button, loading/error/empty states, searchable/sortable device table with column visibility and detail drawer, ECharts history, interactive XYFlow observed-device canvas, event severity filtering and read-state persistence, JSON export, and clearly separated demo/live modes.
 
