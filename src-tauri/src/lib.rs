@@ -119,8 +119,7 @@ fn validate_endpoint(host: &str, port: u16) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg_attr(feature = "desktop", tauri::command)]
-pub async fn check_endpoint(host: String, port: u16) -> Result<f64, String> {
+pub async fn probe_endpoint(host: String, port: u16) -> Result<f64, String> {
     validate_endpoint(&host, port)?;
     let started = Instant::now();
     let stream = tokio::time::timeout(
@@ -132,6 +131,14 @@ pub async fn check_endpoint(host: String, port: u16) -> Result<f64, String> {
     .map_err(|_| "TCP connection failed; check endpoint and network access".to_string())?;
     drop(stream);
     Ok(started.elapsed().as_secs_f64() * 1000.0)
+}
+
+// Keep root-level Tauri commands private: public command macros are exported
+// and then re-imported into the same macro namespace by tauri::command.
+#[cfg(feature = "desktop")]
+#[tauri::command]
+async fn check_endpoint(host: String, port: u16) -> Result<f64, String> {
+    probe_endpoint(host, port).await
 }
 
 #[cfg(feature = "desktop")]
@@ -222,6 +229,6 @@ mod tests {
     async fn tcp_check_connects_to_local_listener() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
-        assert!(check_endpoint("127.0.0.1".into(), port).await.unwrap() >= 0.0);
+        assert!(probe_endpoint("127.0.0.1".into(), port).await.unwrap() >= 0.0);
     }
 }
